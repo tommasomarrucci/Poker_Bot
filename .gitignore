@@ -1,0 +1,17 @@
+.venv/
+.build/
+__pycache__/
+*.pyc
+.DS_Store
+.Rhistory
+session*.jsonl
+live-*/
+live-*.jsonl
+sessions/
+diagnostics/
+lab/table-reference.png
+tests/fixtures/
+docs/live-readonly-check-*.json
+.env
+.env.*
+!.env.example
