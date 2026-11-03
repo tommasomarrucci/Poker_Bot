@@ -9,9 +9,12 @@ live-*/
 live-*.jsonl
 sessions/
 diagnostics/
-lab/table-reference.png
 tests/fixtures/
 docs/live-readonly-check-*.json
+docs/coordinate_reference/*.png
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 .env
 .env.*
 !.env.example

@@ -19,7 +19,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 from scipy import ndimage
 from hand_results import parse_results, ResultObserver
-from dry_run import command, preview
+from hand_tracker import HandTracker
+from poker_store import PokerStore
+from dry_run import command, control_regions, preview
 
 ROOT = Path(__file__).resolve().parent
 SIZE = (1710, 1107)
@@ -453,12 +455,15 @@ def main():
     ap.add_argument('--fps', type=float, default=5)
     ap.add_argument('--display', type=int, default=1)
     ap.add_argument('--log'); ap.add_argument('--debug-dir'); ap.add_argument('--limit',type=int,default=0)
+    ap.add_argument('--db', help='SQLite observation database; defaults to LOG with .sqlite suffix')
     ap.add_argument('--raw-dir', help='Save source captures as PNG for recognition verification')
     ap.add_argument('--raw-every', type=int, default=1, help='With --raw-dir, save only every Nth capture')
     ap.add_argument('--quiet', action='store_true', help='Write logs without printing every snapshot')
     ap.add_argument('--dry-run-action', choices=['fold', 'check', 'call', 'raise'],
                     help='Preview a supplied command only; never clicks or types')
     ap.add_argument('--dry-run-amount', help='Requested total raise-to amount, e.g. 1,50; preview only')
+    ap.add_argument('--detect-controls', action='store_true',
+                    help='Report read-only action-control regions; never clicks or types')
     args = ap.parse_args()
     request = None
     try:
@@ -488,20 +493,34 @@ def main():
         args.log = str(sessions / (time.strftime('%Y%m%d-%H%M%S') + f'-{time.time_ns() % 1000000:06d}.jsonl'))
     reader = TableReader(lock_layout=live_window, allow_resize=live_window)
     results = ResultObserver()
+    tracker = HandTracker()
     # Preserve earlier sessions: choose a new path instead of truncating a log.
     try:
         log = open(args.log,'x') if args.log else None
     except FileExistsError:
         ap.error('Log already exists; choose a new --log filename')
     result_log = None
+    event_log = None
+    store = None
     if args.log:
         result_path = Path(args.log).with_suffix('.hands.jsonl')
+        event_path = Path(args.log).with_suffix('.events.jsonl')
+        db_path = Path(args.db) if args.db else Path(args.log).with_suffix('.sqlite')
         try:
             result_log = result_path.open('x')
+            event_log = event_path.open('x')
+            store = PokerStore(db_path, source='stars_reader', log_path=args.log)
         except OSError:
             log.close()
+            if result_log:
+                result_log.close()
+            if event_log:
+                event_log.close()
             ap.error('Cannot create hand-results log; choose a new --log filename')
-        print(f'Snapshots: {Path(args.log).resolve()}\nHand results: {result_path.resolve()}', file=sys.stderr)
+        print(f'Snapshots: {Path(args.log).resolve()}\nHand results: {result_path.resolve()}'
+              f'\nHand events: {event_path.resolve()}\nSQLite: {db_path.resolve()}', file=sys.stderr)
+    elif args.db:
+        store = PokerStore(args.db, source='stars_reader', log_path=args.log)
     if args.debug_dir: Path(args.debug_dir).mkdir(parents=True,exist_ok=True)
     if args.raw_dir: Path(args.raw_dir).mkdir(parents=True,exist_ok=True)
     source = frames(args)
@@ -518,10 +537,17 @@ def main():
                     im.save(Path(args.raw_dir)/f'{i:06d}.png')
                 state,canon,boxes = reader.read(im)
                 state['t'] = round(t,3)
+                if args.detect_controls:
+                    state['control_regions'] = control_regions(state)
                 state['new_hand_results'] = results.update(state['chat_result_candidates'], state['t'])
                 if args.debug_dir:
                     draw = ImageDraw.Draw(canon)
                     for box in boxes: draw.rectangle(box,outline='yellow',width=3)
+                    if args.detect_controls:
+                        for region in state['control_regions']:
+                            draw.rectangle(region['box'], outline='cyan', width=3)
+                            draw.text((region['box'][0], region['box'][1] - 18), region['role'],
+                                      fill='cyan')
                     draw.text((45,945),json.dumps({'board':state['board'],'hero':state['hero']['cards'],
                               'pot_cents':state['pot_cents'],'issues':state['issues']}),fill='white')
                     canon.save(Path(args.debug_dir)/f'{i:06d}.jpg')
@@ -530,8 +556,11 @@ def main():
                 state = {'t':round(t,3),'status':'unreadable','reason':str(e)}
             if live_window:
                 state['capture'] = args.capture_info
+            state['hand_tracker'] = tracker.update(state)
             if request is not None:
                 state['command_preview'] = preview(request, state)
+            if store:
+                store.record_snapshot(i, state)
             line = json.dumps(state,ensure_ascii=False)
             if not args.quiet:
                 print(line,flush=True)
@@ -540,6 +569,12 @@ def main():
                 for event in state.get('new_hand_results', []):
                     result_log.write(json.dumps(event, ensure_ascii=False)+'\n')
                 result_log.flush()
+            if event_log:
+                for event in state.get('hand_tracker', {}).get('new_events', []):
+                    event_log.write(json.dumps(event, ensure_ascii=False)+'\n')
+                event_log.flush()
+            if store:
+                store.commit()
             if args.limit and i+1 >= args.limit: break
     except KeyboardInterrupt:
         pass
@@ -549,6 +584,8 @@ def main():
         source.close()
         if log: log.close()
         if result_log: result_log.close()
+        if event_log: event_log.close()
+        if store: store.close()
 
 
 if __name__ == '__main__':

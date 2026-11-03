@@ -1,179 +1,126 @@
-# PokerStars window reader
+# Poker Bot - percorso verso un sistema operativo su PokerStars
 
-## Repository contents and private local data
+L'obiettivo finale del progetto è avere un sistema completo operativo su PokerStars: leggere il tavolo, ricostruire la mano, scegliere un'azione valida, eseguirla e verificarne l'esito. Questa repository contiene la base di osservazione e registrazione su cui costruire quel ciclo completo.
 
-This repository includes the reader, native capture sources, local UI laboratory,
-card-glyph templates and test code. Session logs, diagnostic captures, full-table
-regression screenshots (`tests/fixtures/`), the replica background
-(`lab/table-reference.png`) and live observation reports are intentionally not
-published. They remain on the development machine.
+**Stato attuale:** prototipo locale calibrato sul tema italiano di PokerStars nel browser. Acquisisce immagini, riconosce carte e importi, ricostruisce una sequenza parziale di eventi e salva i risultati in JSONL e SQLite. Non sono ancora implementati un motore strategico completo e un esecutore operativo sul tavolo reale; il programma attuale non esegue click o puntate.
 
-On a fresh clone, screenshot-based `ReaderTest` tests are skipped until the private
-fixtures are supplied locally; other tests remain available. The screenshot
-replica needs your own local `lab/table-reference.png` (1976 × 1279) to reproduce
-its background. Its overlay controls still exist without that file. The separate
-`lab/index.html` demonstration does not require the screenshot.
+L'uso attivo sulla piattaforma è subordinato a un accordo esplicito con l'operatore: le [regole pubbliche di PokerStars](https://www.pokerstars.com/poker/room/prohibited/) vietano bot e assistenza decisionale in tempo reale. L'obiettivo tecnico non implica un'autorizzazione già disponibile.
 
-A local, read-only macOS reader calibrated to the Italian PokerStars browser theme in your recording. It takes screenshots and emits JSON. It never clicks, places bets, recommends actions, or sends screenshots to a service.
+## Come leggere la repository
 
-## Local automation lab (separate from the reader)
+1. **Partire da questo README:** descrive obiettivo, stato attuale, avvio, output e limiti.
+2. **Leggere la [roadmap tecnica](ROADMAP_ATTIVAZIONE_POKERSTARS.md)**, disponibile anche in [PDF](ROADMAP_ATTIVAZIONE_POKERSTARS.pdf): contiene i difetti riprodotti, i componenti mancanti e i criteri per completare l'esperimento.
+3. **Seguire il flusso dei dati:** `stars_reader.py` orchestra acquisizione, riconoscimento e registrazione. `mac_capture.py` e `native/WindowStream.swift` forniscono le immagini; `assets/` contiene i template delle carte.
+4. **Esaminare la memoria e i risultati:** `hand_tracker.py` deduce gli eventi tra frame; `hand_results.py` conferma i pagamenti espliciti della chat. Le due fonti non costituiscono una storia completa della mano.
+5. **Esaminare la persistenza e le anteprime:** `poker_store.py` definisce lo schema SQLite; `dry_run.py` descrive richieste e regioni visive senza eseguire azioni.
+6. **Controllare le prove:** `tests/` verifica il comportamento attuale; [docs/validation.md](docs/validation.md) distingue calibrazione, regressioni e limiti delle verifiche live storiche.
 
-Open `http://127.0.0.1:8765/replica.html` for the screenshot-based local button
-fixture. The supplied reference image is kept locally and git-ignored because it
-contains visible player details; it is not fetched from PokerStars. Three DOM
-buttons and a numeric input overlay the reference. This is one decision only,
-not a full poker game. Reset after each action. The test button demonstrates
-setting `input.value`, dispatching an `input` event, verifying it, invoking the
-local raise button's `.click()`, and checking the simulated outcome. No code
-controls other apps. Test the model with `node --test lab/replica.test.mjs`.
-
-The local test executor lives in `lab/replica-executor.mjs`, with its DOM adapter
-in `replica-ui.mjs`. It rereads both the numeric field and the raise label,
-checks the scene version before clicking, then verifies the resulting local
-event. Missing confirmation stops the sequence without retry. The page shows
-the verification trace. This uses our own DOM IDs/model version, not a native
-accessibility driver or discovered PokerStars selectors. Run its fault tests
-with `node --test lab/replica-executor.test.mjs`.
-
-The `lab/` directory is an isolated, deterministic six-seat UI fixture. It has no
-PokerStars connection and is not a complete poker rules engine or strategy.
-It tests observe → scripted decision → DOM button click → state confirmation.
-
-```bash
-python -m http.server 8765 --bind 127.0.0.1 --directory lab
-# Open http://127.0.0.1:8765
-node --test lab/engine.test.mjs
+```mermaid
+flowchart LR
+    A[Immagine, video o finestra] --> B[Acquisizione e riconoscimento]
+    B --> C[Snapshot del tavolo]
+    C --> D[Tracker eventi e risultati chat]
+    D --> E[JSONL e SQLite]
+    C --> F[Anteprima comando senza esecuzione]
 ```
 
-Use “Calcola e clicca una volta” for one action, or “Avvia automatico” for the
-complete scripted sequence. “Stop” cancels automation; hiding the browser tab
-also stops it. The FPS selector controls local decision polling, not screen OCR.
-New hands stop automation before resetting the state. Stale decisions and missing
-buttons are rejected. Button clicks are DOM `.click()` calls inside this local
-page, not operating-system mouse input or clicks on another app.
+## Cosa manca per arrivare all'obiettivo finale
 
-Logs include hand ID, hero cards, street, board, seat, action and monotonic-clock
-turn duration. This duration includes scheduling and automation delay: it does
-not measure human thinking time. Export JSONL before closing the page; nothing
-is saved automatically. At most 1,000 events are retained in memory (the last
-100 shown), with no screenshot storage. The existing reader remains read-only.
+| Componente | Stato attuale | Lavoro necessario |
+| --- | --- | --- |
+| Acquisizione e riconoscimento | Presenti, calibrati su un layout | Verificare dati indipendenti, transizioni, oscuramenti e latenza |
+| Ricostruzione della mano | Presente, con difetti noti | Correggere confini delle mani, cambi di street, ordine delle azioni e importi incerti |
+| Motore decisionale | Non implementato nel nucleo | Definire strategia, azioni valide, importi e comportamento con dati insufficienti |
+| Lettura dei controlli | Regioni indicative | Riconoscere pulsanti, costo della chiamata, limiti e valore del campo importo |
+| Esecuzione | Solo anteprime | Integrare un esecutore con verifica immediata dello stato e invio singolo |
+| Conferma e recupero | Non integrati con un esecutore | Confermare gli esiti, gestire timeout e riavvii, impedire duplicazioni |
+| Validazione completa | Test del nucleo e prove storiche | Preparare un banco di prova e dimostrare l'intero ciclo prima dell'eventuale test autorizzato |
 
-## Reader installation
+Il progetto sarà tecnicamente completo quando l'intero ciclo sarà verificato, inclusi i casi di incertezza e arresto. Il superamento dei test attuali non certifica né la prontezza alla produzione né la redditività di una strategia.
 
-Install Homebrew first if it is not already installed, then run these commands from this folder:
+## Installazione
 
-```bash
-brew install python@3.12 tesseract ffmpeg
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-FFmpeg is needed only for video input. Tesseract is required for all modes.
-
-## Read one locked PokerStars window
-
-In macOS System Settings → Privacy & Security, allow screen recording for the app running Python (usually Terminal), then restart that app if requested.
-
-Select the PokerStars table tab in your browser, using the same green theme and preferred bottom seat. Default live capture uses ScreenCaptureKit (macOS 14+); Xcode Command Line Tools are required to compile the bundled Swift helper on first run (`xcode-select --install` if missing). Run:
+Usare Python 3.10 o successivo. Nella cartella del progetto:
 
 ```bash
-python stars_reader.py --fps 5 --quiet
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-The reader finds windows whose title or app name contains `PokerStars`, validates the table, and locks to exactly one window ID and owner process. A continuous ScreenCaptureKit stream captures that window directly, without clicking or activating it. Other windows are not included. The latest frame replaces the previous frame; there is no accumulating frame queue in Python. Frames are transferred as uncompressed pixels at a maximum width of 1710, avoiding repeated PNG compression. The stream requests the configured fps; OCR can process fewer frames.
-
-Stop with Ctrl+C. Use a new log filename for each session: existing logs are never overwritten. If the window closes or changes title/tab, the reader emits an unreadable record and does not switch to another window. Moving the window is supported. Resizing keeps the window ID, restarts the stream at the new dimensions, and recalibrates the table; transient frames or unsupported/small layouts can be rejected. Background capture succeeded locally, including frames marked offscreen by macOS. Minimized/suspended windows and all combinations of macOS Spaces are not guaranteed; missing fresh stream updates produce an error rather than silently replaying stale images.
-
-If selection is ambiguous, inspect window IDs and choose one explicitly:
+Tesseract deve essere disponibile nel PATH. FFmpeg è necessario solo per leggere video. Su macOS, se non già installati:
 
 ```bash
-python stars_reader.py --list-windows
-python stars_reader.py --window-id 12345 --quiet
+brew install tesseract ffmpeg
 ```
 
-Window IDs are local to the currently open windows; do not reuse an old ID after closing the browser. An explicitly selected window must still contain a readable table.
+La cattura live richiede macOS, il permesso Registrazione schermo e una toolchain Swift con le API ScreenCaptureKit usate in `native/WindowStream.swift`. Il programma compila automaticamente l'helper quando manca o è da aggiornare. L'ambiente `.venv/` già presente può essere riutilizzato.
 
-The program prints one JSON snapshot per processed capture. The default target is 5 fps (one capture every 0.2 seconds); allowed values are greater than zero and at most 30. Actual recognition speed depends on OCR and capture time. Use `--quiet` to suppress snapshot printing while retaining logs. Screen Recording permission is still required. `capture` metadata includes the window ID, dimensions, layout revision, visibility, backend, and source freshness timestamps. Temporary capture/OCR errors produce unreadable records; the reader retries the same window.
+## Avvio
 
-Live runs without `--log` automatically create timestamped logs in `sessions/`. With `--log example.jsonl`, snapshots go to that file and confirmed chat payout observations go to `example.hands.jsonl`. These are **not complete poker hand histories**: the results file contains explicit hand IDs, winners and payouts from the visible dealer chat, not inferred actions, net profit, or a guaranteed association with the current cards. An empty results file means no payout message met the recognition/confirmation requirements.
-
-The older window backend is available with `--capture-backend legacy`; it is less reliable in the background. Whole-display capture remains available with `--screen --display 2`; it does not lock the window or layout and requires the table to remain visible.
-
-## Test before live use
-
-### Read-only command preview on PokerStars
+Elencare le finestre disponibili e avviare una lettura limitata sulla finestra scelta, sostituendo `12345` con l'ID corrente:
 
 ```bash
-python stars_reader.py --limit 3 --dry-run-action raise --dry-run-amount 1,50
+.venv/bin/python stars_reader.py --list-windows
+.venv/bin/python stars_reader.py --window-id 12345 --fps 5 --limit 30 --quiet
 ```
 
-This annotates observations with a `command_preview`; it never moves the mouse,
-types an amount, or sends an order. Amounts use exact integer cents and mean the
-requested total raise-to, not an increment. Commas or dots are accepted as decimal
-separators (no thousands separators). `fold`, `check` and `call` accept no amount.
-The current reader does not identify individual action buttons, call price,
-raise limits, or field contents, so previews explicitly remain `not_verified`,
-with no target coordinates. A visible hero control area is not enough to certify
-a legal action. No screenshots are saved unless explicitly requested.
+Senza `--window-id`, il programma cerca un solo tavolo leggibile. Senza `--limit`, continua fino a Ctrl+C. Il valore FPS è un obiettivo di acquisizione: il tempo richiesto dall'OCR può ridurre il numero di frame elaborati.
+
+La cattura resta associata alla finestra selezionata. Chiusura, cambio titolo o errori di lettura producono segnalazioni; il programma non seleziona automaticamente un altro tavolo. Il backend `--capture-backend legacy` usa `screencapture`; l'helper Swift utilizzato dal backend predefinito è esclusivamente `WindowStream.swift`.
+
+Per analizzare dati già disponibili:
 
 ```bash
-python -m unittest discover -s tests -v
-python stars_reader.py --image tests/fixtures/218.png --debug-dir diagnostics/debug
-python stars_reader.py --video '/path/to/recording.mov' --fps 1 --log replay.jsonl
-python stars_reader.py --limit 30 --log live-check.jsonl --raw-dir diagnostics/live-check/raw --debug-dir diagnostics/live-check/debug
+.venv/bin/python stars_reader.py --image tests/fixtures/218.png
+.venv/bin/python stars_reader.py --video /percorso/registrazione.mov --fps 1
+.venv/bin/python stars_reader.py --frames /percorso/cartella_png
 ```
 
-`--debug-dir debug` saves normalized screenshots with detected cards outlined. Avoid leaving it enabled indefinitely: it saves every processed frame.
+L'esempio immagine richiede la fixture locale. Le immagini della cartella vengono lette in ordine alfabetico.
 
-`--raw-dir` saves input PNGs, including captured frames that recognition rejects, for comparison with the JSON. `--raw-every 10` saves only every tenth processed frame to reduce disk use. A startup probe is also saved for diagnostics. Raw and debug filenames use the same frame index. Use fresh output directories for each run; images in a reused directory can be overwritten. Raw images may contain visible account/player information. Both image options are intended for short diagnostic runs; normal live runs need only JSON logs.
+## Output e diagnostica
 
-`--frames folder` reads the folder's PNGs alphabetically. Its `t` values are frame indices. Live `t` values are Unix timestamps; video values are nominal sample interval times, not exact source presentation timestamps. `--limit 10` stops after ten samples.
+Le sessioni live creano automaticamente i file in `sessions/`. Con `--log /percorso/run.jsonl`, vengono prodotti:
 
-## Output
-
-- `board` and `hero.cards`: rank/suit codes, e.g. `Td`, `Ac`; `T` means ten.
-- `card_scores`: template similarities, **not calibrated probabilities**. Low or ambiguous matches contain `?`.
-- `pot_cents`, `contribution_cents`, `stack_cents`, `bet_cents`: integer euro cents, avoiding floating-point currency errors.
-- `null`: unavailable or uncertain, **not zero**. A blank bet region is also `null` because this prototype does not distinguish absence from a missed read.
-- `seats`: clockwise from bottom, numbered 1–6. Seat 1 is the bottom player; this assumes you use the same preferred seat as the recording.
-- `label_raw`, `status_raw`, `bet_raw`: local OCR readings for inspection. Names can disappear when an action label replaces them.
-- `dealer_seat`, `to_act_seat`: calibrated visual heuristics; `null` when no unique marker is found. These are not comprehensively validated.
-- `cards_visible`: detected hole cards at the bottom or red backs elsewhere. It is **not** a reliable in-hand flag at showdown.
-- `street`: flop/turn/river based on visible board size; `no_board` intentionally does not assert preflop.
-- `participation_id_raw`: displayed participation identifier, not a unique hand identifier.
-- `issues`: detected recognition problems; an empty list does not certify the entire snapshot.
-
-## Project layout and storage
-
-| Path | Purpose |
+| File | Contenuto |
 | --- | --- |
-| `stars_reader.py` | Recognition pipeline and CLI |
-| `mac_capture.py` | macOS window capture |
-| `hand_results.py` | Dealer-chat payout observations |
-| `native/` | Swift capture source |
-| `assets/` | Small card recognition templates; required at runtime |
-| `tests/` | Regression tests and selected fixture images |
-| `sessions/` | Automatically saved live JSON logs and hand-result observations |
-| `sessions/archive/2026-09-30/` | Preserved earlier sessions, with SHA-256 manifest |
-| `diagnostics/` | Optional, temporary screenshot output; not needed for normal use |
-| `.build/` | Compiled helpers and regenerable compiler cache |
-| `.venv/` | Installed Python dependencies |
+| `run.jsonl` | Snapshot, carte, importi, qualità della lettura e stato del tracker |
+| `run.events.jsonl` | Eventi dedotti dal tracker |
+| `run.hands.jsonl` | Pagamenti espliciti confermati nella chat visibile |
+| `run.sqlite` | Sessione, snapshot, posti, eventi e risultati |
 
-Normal live use saves JSON only. PNG/JPEG files are written only when image diagnostics are explicitly enabled. The small images in `assets/` and `tests/fixtures/` are intentional: templates and regression examples, not an accumulating capture history.
+`--db` permette di scegliere un database diverso, anche senza `--log`. Usare un nome nuovo per i log: quelli esistenti non vengono sovrascritti. I risultati della chat possono riferirsi a mani precedenti e non sono un registro completo di profitto o perdita.
 
-Historical capture batches and compiler caches were deleted during cleanup. All 22 original JSON logs were preserved byte-for-byte in the dated archive; verify them there with `shasum -a 256 -c manifest.sha256`. The reader remains stopped after cleanup.
+Le immagini vengono salvate solo su richiesta: `--raw-dir` conserva le catture originali, `--raw-every N` ne riduce la frequenza e `--debug-dir` produce immagini annotate. Usare cartelle nuove per ogni prova per evitare di sovrascrivere immagini precedenti.
 
-## Current limits
+`--detect-controls` mostra regioni visive indicative. `--dry-run-action` e `--dry-run-amount` producono soltanto anteprime: pulsanti individuali, importi legali e coordinate desktop non sono ancora verificati.
 
-- Single-table, same-theme prototype. Automatic location uses the largest green felt region at startup; default live mode then locks the window and recalibrates geometry after resizing. Different themes, small windows, overlays, and cropping may fail. Locking does not guarantee perfect OCR or card recognition.
-- Text OCR still sometimes returns null for visible bets/stacks/pots. It can also misread characters; inspect raw text and debug images.
-- Stable felt patches and community-card visibility are checked on every frame. A blacked-out board is rejected by regression tests; arbitrary partial occlusion is still not guaranteed to be detected.
-- Overlapping bottom-player cards are supported. Opponent face-up showdown cards are not decoded.
-- It emits snapshots and explicit chat payout observations, not a reconstructed action history. Even at the default 5 fps it can miss rapid actions and transitional states. It does not preserve player identities under temporary action labels, infer side pots, or detect hand boundaries reliably.
-- No assertion of complete five-minute recognition accuracy or production readiness is made.
+## Struttura essenziale
 
+| Percorso | Funzione |
+| --- | --- |
+| `stars_reader.py` | CLI, riconoscimento delle carte e OCR |
+| `mac_capture.py`, `native/WindowStream.swift` | Acquisizione della finestra su macOS |
+| `hand_tracker.py` | Memoria temporale e deduzione degli eventi |
+| `hand_results.py` | Lettura e conferma dei risultati nella chat |
+| `poker_store.py` | Persistenza SQLite |
+| `dry_run.py` | Anteprime e regioni visive dei controlli |
+| `assets/` | Template necessari per riconoscere le carte |
+| `tests/` | Test del nucleo e fixture locali di regressione |
+| `docs/` | Storico delle verifiche e riferimenti visivi delle coordinate |
+| `sessions/` | Registrazioni locali conservate per analisi e replay |
+| `ROADMAP_ATTIVAZIONE_POKERSTARS.md` e `.pdf` | Lavori mancanti e criteri di validazione |
 
-## Validation
+Le vecchie demo locali, i documenti sul bet sizing, il relativo script editoriale e l'helper Swift di cattura singola non utilizzato sono stati rimossi. Non sono dipendenze del lettore. Le coordinate storiche sono in [docs/coordinate_reference](docs/coordinate_reference/PokerStars%20coordinate%20reference.md).
 
-The regression suite has 26 test methods. See [validation history](docs/validation.md) for calibration details, measurements, and limitations. Passing these tests does not establish perfect live recognition.
+## Test e limiti
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+La suite del nucleo comprende 42 test. Le fixture in `tests/fixtures/`, le immagini annotate in `docs/coordinate_reference/`, le sessioni, i database di osservazione e i rapporti live privati sono esclusi da Git: su un clone pulito i test visivi vengono saltati finché non sono disponibili le immagini. I template in `assets/` sono invece necessari al funzionamento e versionati. La documentazione delle coordinate è pubblicata come testo; i suoi screenshot di riferimento restano locali.
+
+Il riconoscimento è calibrato su un layout specifico; altre dimensioni, temi o sovrapposizioni possono causare errori. Confidenze OCR e similarità dei template non sono probabilità calibrate. Un elenco `issues` vuoto non certifica la correttezza dello snapshot.
+
+Il tracker presenta ancora problemi noti sui confini delle mani, sui cambi di street, sull'ordine delle azioni e sulla propagazione degli importi sconosciuti. La pulizia della repo non modifica questi comportamenti. Dettagli nella [roadmap](ROADMAP_ATTIVAZIONE_POKERSTARS.md) e nello [storico di validazione](docs/validation.md).

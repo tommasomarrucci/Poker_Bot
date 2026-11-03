@@ -1,5 +1,5 @@
 import unittest
-from dry_run import command, preview
+from dry_run import command, control_regions, preview
 
 
 class DryRunTest(unittest.TestCase):
@@ -34,9 +34,21 @@ class DryRunTest(unittest.TestCase):
         self.assertEqual(result['status'], 'not_verified')
         self.assertEqual(result['amount_text_example'], '1,50')
         self.assertIsNone(result['target_coordinates'])
+        self.assertEqual([r['role'] for r in result['target_regions']],
+                         ['amount_input', 'right_action_button'])
+        self.assertTrue(all(not r['clickable'] for r in result['target_regions']))
 
     def test_unreadable_or_missing_turn(self):
         result = preview(command('call'), {'status': 'unreadable'})
         self.assertIn('unreadable_snapshot', result['reasons'])
         self.assertIn('hero_turn_not_confirmed', result['reasons'])
         self.assertIsNone(result['amount_text_example'])
+        self.assertEqual(result['target_regions'], [])
+
+    def test_control_regions_are_visual_only(self):
+        regions = control_regions({'hero_controls_visible': True, 'to_act_seat': 1})
+        self.assertEqual([r['role'] for r in regions],
+                         ['fold_button', 'middle_action_button', 'right_action_button', 'amount_input'])
+        self.assertTrue(all(r['coordinate_space'] == 'canonical_table_image_1710x1107' for r in regions))
+        self.assertTrue(all(r['screen_coordinates'] is False for r in regions))
+        self.assertTrue(all(r['clickable'] is False for r in regions))
